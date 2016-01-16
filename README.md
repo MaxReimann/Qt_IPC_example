@@ -1,0 +1,1 @@
+# Qt_IPC_example
