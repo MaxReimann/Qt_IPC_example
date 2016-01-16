@@ -6,7 +6,7 @@
 
 int main(int argc, const char* argv[])
 {
-  	QObject *parent;
+    QObject *parent;
     QImage image("../test.png");
     if (image.isNull())
     {
@@ -50,12 +50,12 @@ int main(int argc, const char* argv[])
     qDebug() << "image copied to shared memory";
 
     while (pyProcess->waitForReadyRead(-1)){
-		QByteArray newData = pyProcess->readAllStandardOutput();
-		QString result = QString::fromLocal8Bit(newData);
-		qDebug(qPrintable(QString("py:")+result));
-	}
-
-	sharedMemory.detach();
-
-	return 0;
+	QByteArray newData = pyProcess->readAllStandardOutput();
+	QString result = QString::fromLocal8Bit(newData);
+	qDebug(qPrintable(QString("py:")+result));
+    	
+    }
+    sharedMemory.detach();
+    
+    return 0;
 }
