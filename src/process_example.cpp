@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 
-#define PROCESSNAME QString("process_example")
+#define PROCESSNAME QString("process_example17")
 
 #define MAXBUFFERSIZEBYTES 1073741824 //1 gb
 
@@ -134,7 +134,7 @@ void ProcessExample::sendImages(std::vector<QImage>& imgs)
     {
         if (count == 1){}
         else if (count < maxCount )
-            out << img;
+            out << img.convertToFormat(QImage::Format_RGB32);
         else 
             break;
         count++;

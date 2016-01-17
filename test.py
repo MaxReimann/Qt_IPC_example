@@ -1,9 +1,16 @@
 from PyQt5 import QtCore, QtGui
 import numpy as np
+import qimage2ndarray
 
 
 class IPCHandler(object):
 	def __init__(self, process_name):
+		self.comm_memory = QtCore.QSharedMemory()
+		self.comm_memory.setKey(process_name + "_communication")
+		while True:
+			if self.comm_memory.attach():
+				print("comm memory attached")
+				break
 		self.in_memory = QtCore.QSharedMemory()
 		self.in_memory.setKey(process_name+"_in")
 		while True:
@@ -15,19 +22,17 @@ class IPCHandler(object):
 		self.out_memory = QtCore.QSharedMemory()
 		self.out_memory.setKey(process_name+"_out")
 
-		self.comm_memory = QtCore.QSharedMemory()
-		self.comm_memory.setKey(process_name + "_communication")
-		while True:
-			if self.comm_memory.attach():
-				print("comm memory attached")
-				break
 
 	def receiveImages(self):
 		self.images = []
 		buf = QtCore.QBuffer()
 		datastream = QtCore.QDataStream(buf)
 
-		self.in_memory.lock();
+		l = self.in_memory.lock();
+		if l != True:
+			print "locking error: %s"%(self.in_memory.errorString())
+
+		print "size mem: %d"%(self.in_memory.size())
 		buf.setData(self.in_memory.constData())
 		buf.open(QtCore.QBuffer.ReadOnly)
 
@@ -35,12 +40,13 @@ class IPCHandler(object):
 			qimg = QtGui.QImage()
 			try:
 				datastream >> qimg
+
 			except Exception as e:
-				print(e)
+				print "exception in receive Function: %s"%(e)
 				break
 			if qimg.isNull(): #no more images in stream
 				break
-			self.images.append(self.convertQImageToMat(qimg)) #appends copy
+			self.images.append(qimage2ndarray.rgb_view(qimg)) #appends copy
 
 		print "received %d images"%(len(self.images))
 		self.in_memory.unlock()
@@ -77,20 +83,23 @@ class IPCHandler(object):
 		return self.images
 
 	def convertMatToQImage(self, image):
-		return QtGui.QImage(image.data,image.shape[1], image.shape[0], QtGui.QImage.Format_RGB888)
+		#return QtGui.QImage(image.data,image.shape[1], image.shape[0], QtGui.QImage.Format_RGB888)
+		return qimage2ndarray.array2qimage(image)
 
 	def convertQImageToMat(self, incomingImage):
-		'''  Converts a QImage into an numpy mat format  '''
+		'''  Converts a QImage into an numpy ndarray format  '''
 
-		incomingImage = incomingImage.convertToFormat(QtGui.QImage.Format_RGB888)
+		# width = incomingImage.width()
+		# height = incomingImage.height()
 
-		width = incomingImage.width()
-		height = incomingImage.height()
+		# print "width %d height %d, byteCount: %d"%(width, height, incomingImage.byteCount())
 
-		ptr = incomingImage.bits()
-		ptr.setsize(incomingImage.byteCount())
-		arr = np.array(ptr).reshape(height, width, 3)  #  Copies the data
-		return arr
+		# ptr = incomingImage.bits()
+		# ptr.setsize(incomingImage.byteCount())
+		# arr = np.array(ptr).reshape(height, width, 3)  #  Copies the data
+		# return arr
+		return qimage2ndarray.rgb_view(incomingImage.convertToFormat(QtGui.QImage.Format_RGB32))
+
 
 	def updateCommStatus(self, this_status):
 		buf = QtCore.QBuffer()
@@ -119,17 +128,17 @@ class IPCHandler(object):
 		return status
 
 	def __del__(self):
+		if self.comm_memory.isAttached():
+			self.comm_memory.detach()
 		if self.in_memory.isAttached():
 			self.in_memory.detach()
 		if self.out_memory.isAttached():
 			self.out_memory.detach()
-		if self.comm_memory.isAttached():
-			self.comm_memory.detach()
 		print "cleaned up"
 
 
 try:
-	ipchandler = IPCHandler('process_example')
+	ipchandler = IPCHandler('process_example17')
 	ipchandler.receiveImages()
 	images = ipchandler.getImages()
 	ipchandler.sendImages([ipchandler.convertMatToQImage(img) for img in images])
