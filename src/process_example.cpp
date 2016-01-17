@@ -1,11 +1,11 @@
-#include <QProcess>
-#include <QtDebug>
-#include <QBuffer>
-#include <QImage>
-#include <QSharedMemory>
-#include <QPoint>
+#include "process_example.h"
+#include <cmath>
+#include <stdexcept>
+
 
 #define PROCESSNAME QString("process_example")
+
+#define MAXBUFFERSIZEBYTES 1073741824 //1 gb
 
 void copyToMemory(QSharedMemory& memory, QBuffer& buf, int size)
 {
@@ -17,25 +17,25 @@ void copyToMemory(QSharedMemory& memory, QBuffer& buf, int size)
 }
 
 
-QPoint readCommStatus(QSharedMemory& memory)
+QPoint ProcessExample::readCommStatus()
 {
 	QPoint status;
 	QBuffer buf;
     QDataStream stream_recv(&buf);
 
-    memory.lock();
-    buf.setData((char*)memory.constData(), memory.size());
+    sharedMemory_comm.lock();
+    buf.setData((char*)sharedMemory_comm.constData(), sharedMemory_comm.size());
     buf.open(QBuffer::ReadOnly);
     stream_recv >> status;
-    memory.unlock();
+    sharedMemory_comm.unlock();
 
     return status;
 }
 
-void updateCommStatus(QSharedMemory& memory, int status)
+void ProcessExample::updateCommStatus(int status)
 {
 
-	QPoint entireStatus = readCommStatus(memory);
+	QPoint entireStatus = readCommStatus();
 	entireStatus.setX(status);
 
 
@@ -44,13 +44,13 @@ void updateCommStatus(QSharedMemory& memory, int status)
 	QDataStream out(&buf);
 	out << entireStatus;
 
-	copyToMemory(memory, buf, buf.size());
+	copyToMemory(sharedMemory_comm, buf, buf.size());
 }
 
-void updateCommStatusClient(QSharedMemory& memory, int clientStatus)
+void ProcessExample::updateCommStatusClient(int clientStatus)
 {
 
-	QPoint entireStatus = readCommStatus(memory);
+	QPoint entireStatus = readCommStatus();
 	entireStatus.setY(clientStatus);
 
 
@@ -59,14 +59,15 @@ void updateCommStatusClient(QSharedMemory& memory, int clientStatus)
 	QDataStream out(&buf);
 	out << entireStatus;
 
-	copyToMemory(memory, buf, buf.size());
+	copyToMemory(sharedMemory_comm, buf, buf.size());
 }
 
 
-int waitAndPrint(QProcess* pyProcess, QSharedMemory& sharedMemory_comm)
+//if comparator is true, will wait
+int ProcessExample::waitAndPrint(comparefunc compare)
 {
-	int pending = 0;
-    while (pyProcess->waitForReadyRead(-1) && pending == 0){
+
+    while (compare(readCommStatus()) && pyProcess->waitForReadyRead(-1)){
 		QByteArray newData = pyProcess->readAllStandardOutput();
 		QString result = QString::fromLocal8Bit(newData);
 		qDebug(qPrintable(QString("py:")+result));
@@ -77,26 +78,20 @@ int waitAndPrint(QProcess* pyProcess, QSharedMemory& sharedMemory_comm)
 		{
 			qDebug(qPrintable(QString("py error:")+resultErr));
 			qDebug() << "exting because of python error..";
-			return -1;
+			throw (QString("py error:")+resultErr).toStdString();
 		}
-
-		pending = readCommStatus(sharedMemory_comm).y();
 	}
 
-	return pending;
+	return readCommStatus().y();
 }
 
-int main(int argc, const char* argv[])
+
+ProcessExample::ProcessExample()
 {
+
   	QObject *parent;
-    QImage image("../test.png");
-    if (image.isNull())
-    {
-    	qDebug() << " image could not be loaded";
-    	return 0;
-    }
 
-
+    //## create communication buffers ##
     QBuffer buffer_comm;
     buffer_comm.open(QBuffer::ReadWrite);
     QDataStream out_comm(&buffer_comm);
@@ -104,89 +99,130 @@ int main(int argc, const char* argv[])
     //2: pyprocess memory pending buffer size (_out memory)
     out_comm << QPoint(0,0); 
 
-
-    QSharedMemory sharedMemory_comm(PROCESSNAME + QString("_communication"));
+    sharedMemory_comm.setKey(PROCESSNAME + QString("_communication"));
     if (!sharedMemory_comm.create(buffer_comm.size())) {
         qDebug() << "Unable to create shared memory segment for communication memory.";
-        return 0;
+        qDebug() << sharedMemory_comm.errorString();
+        throw std::exception();
     }
-
-  
     copyToMemory(sharedMemory_comm, buffer_comm, buffer_comm.size());
 
 
-
-
+    //## start process ##
     QString program = "python";
     QStringList arguments;
     QString programPath(PYSOURCE);
     arguments << "-u" << programPath+QString("/test.py");
     qDebug() << arguments;
 
-    QProcess *pyProcess = new QProcess();
+    pyProcess = new QProcess();
     pyProcess->start(program, arguments);
+}
 
+
+void ProcessExample::sendImages(std::vector<QImage>& imgs)
+{
     QBuffer buffer;
     buffer.open(QBuffer::ReadWrite);
     QDataStream out(&buffer);
-    out << image;
-    // out << image2;
+    out << imgs.front();
+
+    int maxCount = MAXBUFFERSIZEBYTES / buffer.size();
+    int count = 1;
+
+    for (auto img : imgs)
+    {
+        if (count == 1){}
+        else if (count < maxCount )
+            out << img;
+        else 
+            break;
+        count++;
+    }
+
+    if (maxCount - count > 0)
+    {
+        //TODO: implement queing of remaining images
+        qDebug() << "too many images in one batch.. ";
+
+    }
 
     int size = buffer.size();
 
-    QSharedMemory sharedMemory(PROCESSNAME + QString("_in"));
-    if (!sharedMemory.create(size)) {
-        qDebug() << "Unable to create shared memory segment.";
-        return 0;
+    if (!sharedMemory_send.isAttached())
+    {   
+        sharedMemory_send.setKey(PROCESSNAME + QString("_in"));
+        if (!sharedMemory_send.create(size)) {
+            qDebug() << "Unable to create shared memory segment.";
+            qDebug() << sharedMemory_send.errorString();
+            throw std::exception();
+        }
     }
 
-    qDebug() << "sizeof mem: " << sharedMemory.size() << "bufsize:" << buffer.size();
+    qDebug() << "sizeof mem: " << sharedMemory_send.size() << "bufsize:" << buffer.size();
 
-    copyToMemory(sharedMemory, buffer, size);
+    memset(sharedMemory_send.data(), 0, sharedMemory_send.size()); //zero memory
+    copyToMemory(sharedMemory_send, buffer, size);
 
     qDebug() << "image copied to shared memory";
-    int result = waitAndPrint(pyProcess,sharedMemory_comm);
-	sharedMemory.detach();
+    
+    waitAndPrint([](QPoint p){return p.y() == 0;}); //waits until client has pending data
+}
 
-    if (result < 0)
-    	return -1;
 
-  	int pending = result;
-
+std::vector<QImage> ProcessExample::receiveImages()
+{
 	qDebug() << "ok now to second part..";
 
-	QSharedMemory sharedMemory_recv(PROCESSNAME + QString("_out"));
+    int pending = readCommStatus().y();
+    if (!sharedMemory_recv.isAttached())
+    {
+        sharedMemory_recv.setKey(PROCESSNAME + QString("_out"));
 
-
-    if (!sharedMemory_recv.create(pending)) {
-        qDebug() << "Unable to create shared memory segment.";
-		qDebug() << sharedMemory_recv.errorString();
-        return 0;
+        if (!sharedMemory_recv.create(pending)) {
+            qDebug() << "Unable to create shared memory segment.";
+    		qDebug() << sharedMemory_recv.errorString();
+            throw std::exception();
+        }
     }
-    qDebug() << "pending" << sharedMemory_recv.size();
-	// set pending data back to 0
-	updateCommStatusClient(sharedMemory_comm, 0);
+    qDebug() << "pending" << pending << "recv mem size:" << sharedMemory_recv.size();
 
 
-	QBuffer buffer_recv;
+    QBuffer buffer_recv;
     QDataStream stream_recv(&buffer_recv);
-    QImage image_in;
 
-    result = waitAndPrint(pyProcess,sharedMemory_comm);
+    //wait for pending to be 0
+    waitAndPrint([](QPoint p){return p.y() > 0;});
 
     sharedMemory_recv.lock();
     buffer_recv.setData((char*)sharedMemory_recv.constData(), sharedMemory_recv.size());
     buffer_recv.open(QBuffer::ReadOnly);
-    stream_recv >> image_in;
+
+    std::vector<QImage> outVec;
+    while (true)
+    {
+        QImage image_in;
+        stream_recv >> image_in;
+        if (image_in.isNull())
+            break;
+
+        qDebug() << "received image width" << image_in.width();
+        outVec.push_back(image_in.copy());
+    }
+    
     sharedMemory_recv.unlock();
 
+    return outVec;
+}
 
-    
-    qDebug() << "received image width" << image_in.width();
 
+
+ProcessExample::~ProcessExample()
+{
     sharedMemory_recv.detach();
     sharedMemory_comm.detach();
-
-
-	return 0;
+    sharedMemory_send.detach();
+    qDebug() << "calling destructor";
 }
+
+

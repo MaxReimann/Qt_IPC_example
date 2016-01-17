@@ -8,7 +8,7 @@ class IPCHandler(object):
 		self.in_memory.setKey(process_name+"_in")
 		while True:
 			if self.in_memory.attach():
-				print("memory attached")
+				print("in memory attached")
 				break
 		self.images = []
 
@@ -55,6 +55,7 @@ class IPCHandler(object):
 
 		self.updateCommStatus(buf.size())
 		print "image width: %d"%(images[0].width())
+		print "buf: %d"%(buf.size())
 		
 		while True:
 			if self.out_memory.attach():
@@ -67,7 +68,9 @@ class IPCHandler(object):
 		except Exception as e:
 			print(e)
 
+		print("sending Imafes finished")
 		self.out_memory.unlock()
+		self.updateCommStatus(0)
 
 
 	def getImages(self):
@@ -113,16 +116,16 @@ class IPCHandler(object):
 		buf.open(QtCore.QBuffer.ReadOnly)
 		datastream >> status
 		self.comm_memory.unlock()
-
-		print status
-
 		return status
 
 	def __del__(self):
-		self.in_memory.detach()
-		self.out_memory.detach()
-		self.comm_memory.detach()
-		print "calling destructor"
+		if self.in_memory.isAttached():
+			self.in_memory.detach()
+		if self.out_memory.isAttached():
+			self.out_memory.detach()
+		if self.comm_memory.isAttached():
+			self.comm_memory.detach()
+		print "cleaned up"
 
 
 try:
@@ -133,5 +136,6 @@ try:
 	del ipchandler
 except Exception as e:
 	print(e)
+	del ipchandler
 
 print "finished"
