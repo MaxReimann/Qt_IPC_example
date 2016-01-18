@@ -12,9 +12,9 @@ class DataStreamReader
 %End
 
 public:
-	DataStreamReader();
+    DataStreamReader();
 
-	QVector<QImage> readImages(QSharedMemory &mem);
-	void sendImages(QSharedMemory &mem, QVector<QImage> images);
+    QVector<QImage> readImages(QSharedMemory &mem);
+    void sendImages(QSharedMemory &mem, QVector<QImage> images);
 };
 

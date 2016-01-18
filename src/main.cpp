@@ -34,5 +34,5 @@ int main(int argc, const char* argv[])
 
     qDebug() << "received"    << received.size() << "images";
 
-	return 0;
+    return 0;
 }

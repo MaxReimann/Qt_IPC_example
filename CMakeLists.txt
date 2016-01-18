@@ -5,9 +5,9 @@ project(testproject)
 set(target processExample)
 
 set(sources
-	src/main.cpp
-	src/process_example.h
-	src/process_example.cpp)
+    src/main.cpp
+    src/process_example.h
+    src/process_example.cpp)
 
 # Find includes in corresponding build directories
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
