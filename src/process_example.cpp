@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 
-#define PROCESSNAME QString("process_example17")
+#define PROCESSNAME QString("process_example3")
 
 #define MAXBUFFERSIZEBYTES 1073741824 //1 gb
 
@@ -95,7 +95,7 @@ ProcessExample::ProcessExample()
     QBuffer buffer_comm;
     buffer_comm.open(QBuffer::ReadWrite);
     QDataStream out_comm(&buffer_comm);
-    //pair stands for 1: host memory (_in memory) pending buffer size (unused) 
+    //pair stands for 1: host memory (_in memory) pending buffer size
     //2: pyprocess memory pending buffer size (_out memory)
     out_comm << QPoint(0,0); 
 
@@ -120,32 +120,15 @@ ProcessExample::ProcessExample()
 }
 
 
-void ProcessExample::sendImages(std::vector<QImage>& imgs)
+void ProcessExample::sendImages(QVector<QImage>& imgs)
 {
     QBuffer buffer;
     buffer.open(QBuffer::ReadWrite);
     QDataStream out(&buffer);
-    out << imgs.front();
 
-    int maxCount = MAXBUFFERSIZEBYTES / buffer.size();
-    int count = 1;
+    updateCommStatus(0);
 
-    for (auto img : imgs)
-    {
-        if (count == 1){}
-        else if (count < maxCount )
-            out << img.convertToFormat(QImage::Format_RGB32);
-        else 
-            break;
-        count++;
-    }
-
-    if (maxCount - count > 0)
-    {
-        //TODO: implement queing of remaining images
-        qDebug() << "too many images in one batch.. ";
-
-    }
+    out << imgs;
 
     int size = buffer.size();
 
@@ -164,13 +147,15 @@ void ProcessExample::sendImages(std::vector<QImage>& imgs)
     memset(sharedMemory_send.data(), 0, sharedMemory_send.size()); //zero memory
     copyToMemory(sharedMemory_send, buffer, size);
 
+    updateCommStatus(size); // client ready to receive
+
     qDebug() << "image copied to shared memory";
     
     waitAndPrint([](QPoint p){return p.y() == 0;}); //waits until client has pending data
 }
 
 
-std::vector<QImage> ProcessExample::receiveImages()
+QVector<QImage> ProcessExample::receiveImages()
 {
 	qDebug() << "ok now to second part..";
 
@@ -198,19 +183,12 @@ std::vector<QImage> ProcessExample::receiveImages()
     buffer_recv.setData((char*)sharedMemory_recv.constData(), sharedMemory_recv.size());
     buffer_recv.open(QBuffer::ReadOnly);
 
-    std::vector<QImage> outVec;
-    while (true)
-    {
-        QImage image_in;
-        stream_recv >> image_in;
-        if (image_in.isNull())
-            break;
-
-        qDebug() << "received image width" << image_in.width();
-        outVec.push_back(image_in.copy());
-    }
+    QVector<QImage> outVec;
+    stream_recv >> outVec;
     
     sharedMemory_recv.unlock();
+
+    qDebug() << "received " << outVec.size() << "images";
 
     return outVec;
 }

@@ -1,6 +1,12 @@
-from PyQt5 import QtCore, QtGui
+from PyQt4 import QtCore, QtGui
 import numpy as np
 import qimage2ndarray
+try:
+	from datastreamreader import DataStreamReader
+except ImportError:
+	print("datastreamreader can not be imported, has to be built first and put in the pythonpath or this directory")
+except Exception as e:
+	print(e)
 
 
 class IPCHandler(object):
@@ -22,60 +28,41 @@ class IPCHandler(object):
 		self.out_memory = QtCore.QSharedMemory()
 		self.out_memory.setKey(process_name+"_out")
 
+		self.mem_handler = DataStreamReader()
+
 
 	def receiveImages(self):
 		self.images = []
-		buf = QtCore.QBuffer()
-		datastream = QtCore.QDataStream(buf)
 
-		l = self.in_memory.lock();
-		if l != True:
-			print "locking error: %s"%(self.in_memory.errorString())
+		#wait for host to have data ready
+		while self.readCommStatus().x() == 0:
+			pass
 
-		print "size mem: %d"%(self.in_memory.size())
-		buf.setData(self.in_memory.constData())
-		buf.open(QtCore.QBuffer.ReadOnly)
+		imlist = self.mem_handler.readImages(self.in_memory)
 
-		while True:
-			qimg = QtGui.QImage()
-			try:
-				datastream >> qimg
 
-			except Exception as e:
-				print "exception in receive Function: %s"%(e)
-				break
-			if qimg.isNull(): #no more images in stream
-				break
-			self.images.append(qimage2ndarray.rgb_view(qimg)) #appends copy
+		for im in imlist:
+			self.images.append(self.convertQImageToMat(im))
+
 
 		print "received %d images"%(len(self.images))
-		self.in_memory.unlock()
+		return self.images
 
 
 	def sendImages(self, images):
-		buf = QtCore.QBuffer()
-		buf.open(QtCore.QBuffer.WriteOnly)
-		datastream = QtCore.QDataStream(buf)
-		for img in images:
-			datastream << img
+		# lets be generous
+		totalByteCount = 1.5 * sum([im.byteCount() for im in images])
 
-		self.updateCommStatus(buf.size())
+		#creates the out memory of size totalBytecount on the c++ side
+		self.updateCommStatus(totalByteCount)
 		print "image width: %d"%(images[0].width())
-		print "buf: %d"%(buf.size())
 		
 		while True:
 			if self.out_memory.attach():
 				print("out memory attached")
 				break
 
-		self.out_memory.lock()
-		try:
-			self.out_memory.data()[:] = buf.data().data()
-		except Exception as e:
-			print(e)
-
-		print("sending Imafes finished")
-		self.out_memory.unlock()
+		self.mem_handler.sendImages(self.out_memory, images)
 		self.updateCommStatus(0)
 
 
@@ -138,7 +125,7 @@ class IPCHandler(object):
 
 
 try:
-	ipchandler = IPCHandler('process_example17')
+	ipchandler = IPCHandler('process_example3')
 	ipchandler.receiveImages()
 	images = ipchandler.getImages()
 	ipchandler.sendImages([ipchandler.convertMatToQImage(img) for img in images])

@@ -17,8 +17,8 @@ class ProcessExample  : public QObject
 		ProcessExample();
 		~ProcessExample();
 		void process();
-		void sendImages(std::vector<QImage>& imgs);
-		std::vector<QImage> receiveImages();
+		void sendImages(QVector<QImage>& imgs);
+		QVector<QImage> receiveImages();
 
 	private:
 		QPoint readCommStatus();

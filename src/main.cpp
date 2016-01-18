@@ -4,18 +4,20 @@
 int main(int argc, const char* argv[])
 {
     QImage image("../test.png");
-    QImage image2("../screen.png");
+    QImage image2("../cat.png");
     if (image.isNull() || image2.isNull())
     {
         qDebug() << " image could not be loaded";
         return 0;
     }
 
-    std::vector<QImage> images;
-    //images.push_back(image);
+    QVector<QImage> images;
+    for (int i = 0; i  < 100; i++)
+        images.push_back(image.copy());
     images.push_back(image2);
 
-    std::vector<QImage> received;
+
+    QVector<QImage> received;
     ProcessExample procHandler;
     try
     {
@@ -27,6 +29,8 @@ int main(int argc, const char* argv[])
         qDebug() << e.what();
         return -1;
     }
+
+    received.back().save("received.png","PNG");
 
     qDebug() << "received"    << received.size() << "images";
 
