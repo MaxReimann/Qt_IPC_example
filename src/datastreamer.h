@@ -20,7 +20,29 @@ public:
 
         QVector<QImage> outVec;
 
-        stream_recv >> outVec;
+        int numImages;
+        stream_recv >> numImages;
+
+        for (int i= 0; i < numImages; i++)
+        {
+            int format;
+            int width, height, bytesPerLine;
+            unsigned int byteCount;
+
+            stream_recv >> format;
+            stream_recv >> width;
+            stream_recv >> height;
+            stream_recv >> bytesPerLine;
+            QImage img(width, height, (QImage::Format) format);
+            img.fill(0);
+            char *p = (char*) img.bits();
+            stream_recv.readBytes(p,  byteCount);
+            // stream_recv.readBytes(img.bits(), byteCount); //no encoding
+
+            outVec.push_back(img);
+        }
+
+        // stream_recv >> outVec;
         
         sharedMemory_recv.unlock();
 
@@ -34,7 +56,20 @@ public:
         QBuffer buffer;
         buffer.open(QBuffer::ReadWrite);
         QDataStream out(&buffer);
-        out << images;
+
+        out << (int) images.size();
+
+        for (int i = 0; i < images.size();i++)
+        {
+            QImage &img = images[i];
+            out << (int) img.format();
+            out << img.width();
+            out << img.height();
+            out << img.bytesPerLine();
+            out.writeBytes((char *) img.constBits(), (unsigned int) img.byteCount()); //no encoding
+        }
+
+        // out << images;
 
         sharedMemory_send.lock();
 

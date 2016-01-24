@@ -3,7 +3,7 @@
 
 int main(int argc, const char* argv[])
 {
-    QImage image("../test.png");
+    QImage image("../screen.png");
     QImage image2("../cat.png");
     if (image.isNull() || image2.isNull())
     {

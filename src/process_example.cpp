@@ -1,6 +1,7 @@
 #include "process_example.h"
 #include <cmath>
 #include <stdexcept>
+#include <chrono>
 
 
 #define PROCESSNAME QString("process_example3")
@@ -122,13 +123,70 @@ ProcessExample::ProcessExample()
 
 void ProcessExample::sendImages(QVector<QImage>& imgs)
 {
+    // QByteArray ba;
     QBuffer buffer;
-    buffer.open(QBuffer::ReadWrite);
+    buffer.open(QBuffer::WriteOnly);
     QDataStream out(&buffer);
+
+    
+    // QBuffer buffer(&ba);
+    // buffer.open(QIODevice::WriteOnly);
+    // image.save(&buffer, "PNG"); // writes image into ba in PNG format
 
     updateCommStatus(0);
 
-    out << imgs;
+
+    auto start = std::chrono::system_clock::now();
+
+    //header
+    out << (int) imgs.size();
+
+    for (auto& img : imgs)
+    {
+        out << (int) img.format();
+        out << img.width();
+        out << img.height();
+        out << img.bytesPerLine();
+        out.writeBytes((char *) img.constBits(), img.byteCount()); //no encoding
+    }
+
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start);
+    qDebug() << "raw copy duration:" << duration.count() << "ms";
+    qDebug() << "out size:" << buffer.size();
+
+
+    auto start3 = std::chrono::system_clock::now();
+    QBuffer buffer3;
+    buffer3.open(QBuffer::WriteOnly);
+    QDataStream out3(&buffer3);
+
+
+    for (auto& img : imgs)
+    {
+        QByteArray ba;
+        QBuffer buf(&ba);
+        buf.open(QIODevice::WriteOnly);
+        img.save(&buf, "PNG"); // writes image into ba in PNG format
+        out3.writeBytes(ba.data(), ba.size()); //no encoding
+    }
+
+
+    auto duration3 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start3);
+    qDebug() << "png copy duration:" << duration3.count() << "ms";
+    qDebug() << "out size:" << buffer3.size();
+
+
+    auto start2 = std::chrono::system_clock::now();
+    QBuffer buffer2;
+    buffer2.open(QBuffer::WriteOnly);
+    QDataStream out2(&buffer2);
+    out2 << imgs;
+
+    auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start2);
+    qDebug() << "serialization copy duration:" << duration2.count() << "ms";
+    qDebug() << "out2 size:" << buffer2.size();
+
+
 
     int size = buffer.size();
 
@@ -145,6 +203,8 @@ void ProcessExample::sendImages(QVector<QImage>& imgs)
     qDebug() << "sizeof mem: " << sharedMemory_send.size() << "bufsize:" << buffer.size();
 
     memset(sharedMemory_send.data(), 0, sharedMemory_send.size()); //zero memory
+    
+
     copyToMemory(sharedMemory_send, buffer, size);
 
     updateCommStatus(size); // client ready to receive
@@ -184,7 +244,29 @@ QVector<QImage> ProcessExample::receiveImages()
     buffer_recv.open(QBuffer::ReadOnly);
 
     QVector<QImage> outVec;
-    stream_recv >> outVec;
+    // stream_recv >> outVec;
+    int numImages;
+    stream_recv >> numImages;
+
+    for (int i= 0; i < numImages; i++)
+    {
+        int format;
+        int width, height, bytesPerLine;
+        unsigned int byteCount;
+
+        stream_recv >> format;
+        stream_recv >> width;
+        stream_recv >> height;
+        stream_recv >> bytesPerLine;
+        QImage img(width, height, (QImage::Format) format);
+        img.fill(0);
+        char *p = (char*) img.bits();
+        stream_recv.readBytes(p,  byteCount); //no encoding
+        if (byteCount==0)
+            qDebug() << "no bytes read for received image";
+
+        outVec.push_back(img);
+    }
     
     sharedMemory_recv.unlock();
 
